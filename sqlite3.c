@@ -40277,7 +40277,7 @@ SQLITE_PRIVATE int sqlite3KvvfsInit(void){
 #include <sys/types.h>   /* amalgamator: keep */
 #include <sys/stat.h>    /* amalgamator: keep */
 #include <fcntl.h>
-/* /* /* /* /* /* /* /* /* /* #include <sys/ioctl.h> */ */ */ */ */ */ */ */ */ */
+#include <sys/ioctl.h>
 #include <unistd.h>      /* amalgamator: keep */
 /* #include <time.h> */
 #include <sys/time.h>    /* amalgamator: keep */

@@ -2,15 +2,23 @@
 #  Makefile : SQLite3 for X680x0
 # =====================================================================
 
-# 使用するクロスコンパイラとコンバータの設定
+# 使用するクロスコンパイラの設定
 CC      = m68k-xelf-gcc
-ELF2X68 = python3 /opt/homebrew/bin/elf2x68k.py
+
+# 【両Mac対応自動判別】Intel環境とApple Silicon環境の双方のパスを自動チェック
+ifeq ($(wildcard /opt/homebrew/bin/elf2x68k.py),)
+    # /opt/homebrew にない場合は Intel Mac のパスを使用
+    ELF2X68 = python3 /usr/local/bin/elf2x68k.py
+else
+    # 存在する場合は Apple Silicon Mac のパスを使用
+    ELF2X68 = python3 /opt/homebrew/bin/elf2x68k.py
+endif
 
 # ターゲットファイル名
 TARGET_ELF = sqlite3.elf
 TARGET_X   = sqlite3.x
 
-# ソースファイルの一覧
+# ソースファイルの一覧（shell.c は使用せず minshell.c を指定）
 SRCS = minshell.c sqlite3.c stub.c
 
 # コンパイルオプション（2MB環境最適化・標準C言語VFS専用フラグ）
@@ -38,17 +46,14 @@ LIBS = -lm
 # デフォルトターゲット
 all: patch $(TARGET_X)
 
-# 【★追加】公式ソースコードに対する自動パッチ（コメントアウト修正）
-# macOS (sed -i.bak) と Linux (sed -i) の両方に対応できるよう工夫しています
+# 公式ソースコードに対する自動パッチ（sqlite3.c のみのコメント重複防止版）
 patch:
 	@echo "公式ソースコード（ioctl.h）の自動修正チェック中..."
-	@if [ -f sqlite3.c ]; then \
-		sed -i.bak 's/#include <sys\/ioctl.h>/\/* #include <sys\/ioctl.h> *\//g' sqlite3.c 2>/dev/null || \
-		sed -i 's/#include <sys\/ioctl.h>/\/* #include <sys\/ioctl.h> *\//g' sqlite3.c; \
-	fi
-	@if [ -f shell.c ]; then \
-		sed -i.bak 's/# include <sys\/ioctl.h>/\/* # include <sys\/ioctl.h> *\//g' shell.c 2>/dev/null || \
-		sed -i 's/# include <sys\/ioctl.h>/\/* # include <sys\/ioctl.h> *\//g' shell.c; \
+	@if [ -f sqlite3.c ] && ! grep -q "\/\* #include <sys\/ioctl.h> \*\/" sqlite3.c; then \
+		echo "-> sqlite3.c にパッチを適用します"; \
+		sed -i.bak 's/#include <sys\/ioctl.h>/\/* #include <sys\/ioctl.h> *\//g' sqlite3.c 2>/dev/null || sed -i 's/#include <sys\/ioctl.h>/\/* #include <sys\/ioctl.h> *\//g' sqlite3.c; \
+	elif [ -f sqlite3.c ]; then \
+		echo "-> sqlite3.c は既に修正済みです"; \
 	fi
 
 # 1. ソースコードから ELF ファイルをビルド
@@ -62,7 +67,7 @@ $(TARGET_X): $(TARGET_ELF)
 	@echo " 成功: $(TARGET_X) が正常に生成されました！"
 	@echo "======================================================"
 
-# クリーンアップ（パッチ適用時のバックアップファイル .bak も一緒に消去します）
+# クリーンアップ
 clean:
 	rm -f $(TARGET_ELF) $(TARGET_X) *.bak
 

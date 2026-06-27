@@ -1,4 +1,4 @@
-# 『SQLite3 for X68000』
+# SQLite3 for X68000
 
 ## はじめに
 

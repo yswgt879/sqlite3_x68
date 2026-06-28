@@ -68,7 +68,7 @@ int main(int argc, char **argv) {
     }
 
     printf("SQLite version 3.53.3  ");
-    printf("(X680x0 version 0.26.6.28.01)\n");
+    printf("(X680x0 version 0.26.6.28.01 by Kenoh)\n");
     printf("Opened database: %s\n", db_name);
     printf("Type '.help' for usage hints.\n");
     printf("Type '.quit' to quit.\n\n");

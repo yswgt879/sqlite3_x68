@@ -18,7 +18,7 @@ endif
 TARGET_ELF = sqlite3.elf
 TARGET_X   = sqlite3.x
 
-# ソースファイルの一覧（shell.c は使用せず minshell.c を指定）
+# ソースファイルの一覧
 SRCS = minshell.c sqlite3.c stub.c
 
 # コンパイルオプション（2MB環境最適化・標準C言語VFS専用フラグ）
@@ -43,18 +43,8 @@ CFLAGS = -O0 \
 # リンクオプション
 LIBS = -lm
 
-# デフォルトターゲット
-all: patch $(TARGET_X)
-
-# 公式ソースコードに対する自動パッチ（sqlite3.c のみのコメント重複防止版）
-patch:
-	@echo "公式ソースコード（ioctl.h）の自動修正チェック中..."
-	@if [ -f sqlite3.c ] && ! grep -q "\/\* #include <sys\/ioctl.h> \*\/" sqlite3.c; then \
-		echo "-> sqlite3.c にパッチを適用します"; \
-		sed -i.bak 's/#include <sys\/ioctl.h>/\/* #include <sys\/ioctl.h> *\//g' sqlite3.c 2>/dev/null || sed -i 's/#include <sys\/ioctl.h>/\/* #include <sys\/ioctl.h> *\//g' sqlite3.c; \
-	elif [ -f sqlite3.c ]; then \
-		echo "-> sqlite3.c は既に修正済みです"; \
-	fi
+# デフォルトターゲット（パッチ不要になり直接ビルドへ進みます）
+all: $(TARGET_X)
 
 # 1. ソースコードから ELF ファイルをビルド
 $(TARGET_ELF): $(SRCS)
@@ -69,6 +59,6 @@ $(TARGET_X): $(TARGET_ELF)
 
 # クリーンアップ
 clean:
-	rm -f $(TARGET_ELF) $(TARGET_X) *.bak
+	rm -f $(TARGET_ELF) $(TARGET_X)
 
-.PHONY: all clean patch
+.PHONY: all clean

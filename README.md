@@ -14,7 +14,7 @@ Human68k 全バージョン<br>
 ## バージョン情報
 
 SQLite3 Version : 3.53.3<br>
-X68000 Version  : 0.26.7.1.01
+X68000 Version  : 0.26.7.1.02
 
 ## リポジトリの構成
 
@@ -51,10 +51,13 @@ sqlite3.x test.db
 
 ```sql
 sqlite> CREATE TABLE x68k(id INT, model TEXT);
+sqlite> INSERT INTO x68k VALUES(0, 'X68000');
 sqlite> INSERT INTO x68k VALUES(1, 'X68000 XVI');
 sqlite> SELECT * FROM x68k;
-id = 1
-model = X68000 XVI
+id|model
+--+----------
+ 0|X68000
+ 1|X68000 XVI
 
 sqlite> .quit
 ```

@@ -10,51 +10,14 @@
 // 作成日          : 2026/06/26
 // 更新日          : 2026/07/01
 // SQLite3 Version : 3.53.3
-// X680x0 Version  : 0.26.7.1.01
+// X680x0 Version  : 0.26.7.1.02
 //====================================================================
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "sqlite3.h"
 
-/******************************************************************************
- * @fn      callback
- * @brief   本家デフォルトのパイプ(|)区切りおよびヘッダ出力を再現するコールバック関数
- * @param   pFirstRow   : 初回行判定フラグ用のポインタ (1=初回、0=2行目以降)
- * @param   argc        : 取得したレコードの列（カラム）数
- * @param   argv        : 列データの文字列配列
- * @param   azColName   : 列名（カラム名）の文字列配列
- * @return  int         : 常に 0 (処理継続フラグ)
- * @sa
- * @detail  
- *          メモリを一切追加消費しないストリーム表示ハッキング。
- *          最初の1件目が流れてきた時のみ、最上部に列名を「|」区切りで出力（ヘッダ）し、
- *          以降はレコードの各値を本家同様に「値|値|値」のフォーマットで画面に出力します。
- ******************************************************************************/
-static int callback(void *pFirstRow, int argc, char **argv, char **azColName) {
-    int *pFirst = (int*)pFirstRow;
-
-    // 最初の1件目のデータが流れてきた時のみ、最上部にカラム名（ヘッダ）を印刷
-    if (*pFirst) {
-        for (int i = 0; i < argc; i++) {
-            printf("%s%s", azColName[i], (i == argc - 1) ? "" : "|");
-        }
-        printf("\n");
-        // ヘッダの下に本家風の区切り線を引く
-        for (int i = 0; i < argc; i++) {
-            printf("----------------%s", (i == argc - 1) ? "" : "+");
-        }
-        printf("\n");
-        *pFirst = 0; // 2件目以降はスルーさせる
-    }
-
-    // レコードの値を本家風のパイプ区切りで出力
-    for (int i = 0; i < argc; i++) {
-        printf("%s%s", argv[i] ? argv[i] : "", (i == argc - 1) ? "" : "|");
-    }
-    printf("\n");
-    return 0;
-}
+#define MAX_COLS 32
 
 /******************************************************************************
  * @fn      tables_callback
@@ -79,7 +42,7 @@ static int tables_callback(void *NotUsed, int argc, char **argv, char **azColNam
 /******************************************************************************
  * @fn      schema_callback
  * @brief   .schema メタコマンド用のDDL文（CREATE文）出力コールバック関数
- * @param   NotUsed     : アプリケーションから渡される汎用ユーザーデータ（未使用）
+ * @param   NotUsed     : アアプリ環境から渡される汎用ユーザーデータ（未使用）
  * @param   argc        : 取得したレコードの列（カラム）数
  * @param   argv        : 列データの文字列配列
  * @param   azColName   : 列名（カラム名）の文字列配列
@@ -115,6 +78,94 @@ static void print_help(void) {
 }
 
 /******************************************************************************
+ * @fn      execute_sql_with_auto_width
+ * @brief   データ型を自動判別し、数値は右寄せ、文字列は左寄せで等幅出力する関数
+ * @param   db          : オープン済みのsqlite3データベースオブジェクトへのポインタ
+ * @param   zSql        : 実行を要求するSQLクエリ文字列
+ * @return  なし
+ * @sa
+ * @detail  
+ *          1パス目で各カラムデータおよび列名の「実際の最大文字数」を整数配列に記録。
+ *          同時にデータ型を判定し、INTEGER/FLOAT型は「右寄せ(%*s) Foroヘッダ連動」、
+ *          TEXT/NULL型は「左寄せ(%-*s)」で動的にフォーマットを切り替えることで、
+ *          本家さながらの美しい数値・文字整列を完全再現します。
+ ******************************************************************************/
+static void execute_sql_with_auto_width(sqlite3 *db, const char *zSql) {
+    sqlite3_stmt *pStmt;
+    int col_widths[MAX_COLS];
+    int col_types[MAX_COLS];
+    int nCol = 0;
+
+    if (sqlite3_prepare_v2(db, zSql, -1, &pStmt, NULL) != SQLITE_OK) {
+        fprintf(stderr, "SQL Error: %s\n", sqlite3_errmsg(db));
+        return;
+    }
+
+    nCol = sqlite3_column_count(pStmt);
+    if (nCol > MAX_COLS) nCol = MAX_COLS;
+
+    for (int i = 0; i < nCol; i++) {
+        const char *name = sqlite3_column_name(pStmt, i);
+        col_widths[i] = name ? strlen(name) : 0;
+        col_types[i] = SQLITE_TEXT; 
+    }
+
+    while (sqlite3_step(pStmt) == SQLITE_ROW) {
+        for (int i = 0; i < nCol; i++) {
+            const char *val = (const char*)sqlite3_column_text(pStmt, i);
+            if (val) {
+                int len = strlen(val);
+                if (len > col_widths[i]) {
+                    col_widths[i] = len;
+                }
+                int type = sqlite3_column_type(pStmt, i);
+                if (type == SQLITE_INTEGER || type == SQLITE_FLOAT) {
+                    col_types[i] = type;
+                }
+            }
+        }
+    }
+    sqlite3_finalize(pStmt);
+
+    if (sqlite3_prepare_v2(db, zSql, -1, &pStmt, NULL) != SQLITE_OK) {
+        return;
+    }
+
+    if (sqlite3_step(pStmt) == SQLITE_ROW) {
+        for (int i = 0; i < nCol; i++) {
+            const char *name = sqlite3_column_name(pStmt, i);
+            if (col_types[i] == SQLITE_INTEGER || col_types[i] == SQLITE_FLOAT) {
+                printf("%*s%s", col_widths[i], name ? name : "", (i == nCol - 1) ? "" : "|");
+            } else {
+                printf("%-*s%s", col_widths[i], name ? name : "", (i == nCol - 1) ? "" : "|");
+            }
+        }
+        printf("\n");
+
+        for (int i = 0; i < nCol; i++) {
+            for (int j = 0; j < col_widths[i]; j++) {
+                printf("-");
+            }
+            printf("%s", (i == nCol - 1) ? "" : "+");
+        }
+        printf("\n");
+
+        do {
+            for (int i = 0; i < nCol; i++) {
+                const char *val = (const char*)sqlite3_column_text(pStmt, i);
+                if (col_types[i] == SQLITE_INTEGER || col_types[i] == SQLITE_FLOAT) {
+                    printf("%*s%s", col_widths[i], val ? val : "", (i == nCol - 1) ? "" : "|");
+                } else {
+                    printf("%-*s%s", col_widths[i], val ? val : "", (i == nCol - 1) ? "" : "|");
+                }
+            }
+            printf("\n");
+        } while (sqlite3_step(pStmt) == SQLITE_ROW);
+    }
+    sqlite3_finalize(pStmt);
+}
+
+/******************************************************************************
  * @fn      main
  * @brief   複数行入力および本家表示フォーマットを完全シミュレートしたメイン関数
  * @param   argc        : コマンドライン引数の個数
@@ -129,12 +180,11 @@ static void print_help(void) {
 int main(int argc, char **argv) {
     sqlite3 *db;
     char *zErrMsg = 0;
-    char line[256];  // キーボードから1行読み込むためのテンポラリバッファ
-    char query[256]; // 複数行を安全に結合して保持するためのクエリバッファ
+    char line[256];
+    char query[256];
     const char *db_name = ":memory:";
-    int is_first_line = 1; // 複数行入力の1行目かどうかの判定フラグ
+    int is_first_line = 1;
 
-    // 引数があれば、それをファイル名として使用
     if (argc > 1) {
         db_name = argv[1];
     }
@@ -145,17 +195,14 @@ int main(int argc, char **argv) {
     }
 
     printf("SQLite version 3.53.3  ");
-    // 【★重要維持】起動メッセージ画面の by Kenoh は誇らしげにそのままキープ！
-    printf("(X680x0 version 0.26.7.1.01 by Kenoh)\n");
+    printf("(X680x0 version 0.26.7.1.02 by Kenoh)\n");
     printf("Opened database: %s\n", db_name);
     printf("Type '.help' for usage hints.\n");
     printf("Type '.quit' to quit.\n\n");
 
-    // クエリバッファの初期化
     query[0] = '\0';
 
     while (1) {
-        // 複数行入力の状態に合わせてプロンプトを本家風に動的切り替え
         if (is_first_line) {
             printf("sqlite> ");
         } else {
@@ -163,14 +210,12 @@ int main(int argc, char **argv) {
         }
 
         if (!fgets(line, sizeof(line), stdin)) break;
-        line[strcspn(line, "\n")] = 0; // 改行の除去
+        line[strcspn(line, "\n")] = 0;
         
-        // 1行目の入力時のみ、即時終了メタコマンドを判定
         if (is_first_line) {
             if (strcmp(line, ".quit") == 0) break;
             if (strlen(line) == 0) continue;
             
-            // ドット（メタ）コマンドの処理
             if (line[0] == '.') {
                 if (strcmp(line, ".help") == 0) {
                     print_help();
@@ -202,10 +247,9 @@ int main(int argc, char **argv) {
             }
         }
 
-        // 入力された行をクエリバッファに安全に結合
         if (strlen(query) + strlen(line) + 2 < sizeof(query)) {
             if (!is_first_line) {
-                strcat(query, " "); // 改行の代わりに空白を挟む
+                strcat(query, " ");
             }
             strcat(query, line);
         } else {
@@ -215,22 +259,13 @@ int main(int argc, char **argv) {
             continue;
         }
 
-        // 文の末尾が「;」で終わっているかチェック（本家の複数行入力確定ロジック）
         int len = strlen(query);
         if (len > 0 && query[len - 1] == ';') {
-            int first_row_flag = 1; // コールバックのヘッダ印刷用フラグ
-
-            // 通常のSQL文を実行（ヘッダ印刷用フラグポインタをユーザーデータに渡す）
-            if (sqlite3_exec(db, query, callback, &first_row_flag, &zErrMsg) != SQLITE_OK) {
-                fprintf(stderr, "SQL Error: %s\n", zErrMsg);
-                sqlite3_free(zErrMsg);
-            }
-            
-            // 実行が完了したのでバッファとステートを初期化
+            execute_sql_with_auto_width(db, query);
+            printf("\n");
             query[0] = '\0';
             is_first_line = 1;
         } else {
-            // 「;」がまだないので、次の行の入力を促すモードへ切り替え
             is_first_line = 0;
         }
     }

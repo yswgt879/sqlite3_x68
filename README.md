@@ -14,7 +14,7 @@ Human68k 全バージョン<br>
 ## バージョン情報
 
 SQLite3 Version : 3.53.3<br>
-X68000 Version  : 0.26.6.28.01
+X68000 Version  : 0.26.7.1.01
 
 ## リポジトリの構成
 
@@ -26,7 +26,7 @@ X68000 Version  : 0.26.6.28.01
 | `sqlite3.h`    | SQLite3公式のAmalgamationヘッダ（そのまま配置してOK）            |
 | `sqlite3.c`    | SQLite3公式のAmalgamationソース（そのまま配置してOK）            |
 
-## コンパイル方法 (Mac クロス環境)
+## コンパイル方法 (Mac クロス環境のみ)
 
 ターミナルで以下のコマンドを実行します。
 

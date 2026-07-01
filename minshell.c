@@ -8,9 +8,9 @@
 // 動作環境        : X680x0, Human68k
 // 作成者          : Kenoh
 // 作成日          : 2026/06/26
-// 更新日          : 2026/07/01
+// 更新日          : 2026/07/02
 // SQLite3 Version : 3.53.3
-// X680x0 Version  : 0.26.7.1.02
+// X680x0 Version  : 0.26.7.2.01
 //====================================================================
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,7 +42,7 @@ static int tables_callback(void *NotUsed, int argc, char **argv, char **azColNam
 /******************************************************************************
  * @fn      schema_callback
  * @brief   .schema メタコマンド用のDDL文（CREATE文）出力コールバック関数
- * @param   NotUsed     : アアプリ環境から渡される汎用ユーザーデータ（未使用）
+ * @param   NotUsed     : アプリケーションから渡される汎用ユーザーデータ（未使用）
  * @param   argc        : 取得したレコードの列（カラム）数
  * @param   argv        : 列データの文字列配列
  * @param   azColName   : 列名（カラム名）の文字列配列
@@ -79,28 +79,43 @@ static void print_help(void) {
 
 /******************************************************************************
  * @fn      execute_sql_with_auto_width
- * @brief   データ型を自動判別し、数値は右寄せ、文字列は左寄せで等幅出力する関数
+ * @brief   クエリが読み込みか書き込みかを自動判定し、適切に実行・整列出力する関数
  * @param   db          : オープン済みのsqlite3データベースオブジェクトへのポインタ
  * @param   zSql        : 実行を要求するSQLクエリ文字列
  * @return  なし
  * @sa
  * @detail  
- *          1パス目で各カラムデータおよび列名の「実際の最大文字数」を整数配列に記録。
- *          同時にデータ型を判定し、INTEGER/FLOAT型は「右寄せ(%*s) Foroヘッダ連動」、
- *          TEXT/NULL型は「左寄せ(%-*s)」で動的にフォーマットを切り替えることで、
- *          本家さながらの美しい数値・文字整列を完全再現します。
+ *          sqlite3_stmt_readonly APIを使用し、クエリが「読み込み（SELECT等）」か
+ *          「書き込み（INSERT/CREATE等）」かを実行時に高精度自動判別します。
+ *          書き込み命令の場合は1回の実行（1パス）のみで即座に確定させ、重複登録を完璧に防止します。
+ *          読み込み命令の場合は、従来通り2パスによる各列の最大文字数および型自動判別の等幅整列を適用します。
  ******************************************************************************/
 static void execute_sql_with_auto_width(sqlite3 *db, const char *zSql) {
     sqlite3_stmt *pStmt;
     int col_widths[MAX_COLS];
     int col_types[MAX_COLS];
     int nCol = 0;
+    int is_readonly = 1;
 
     if (sqlite3_prepare_v2(db, zSql, -1, &pStmt, NULL) != SQLITE_OK) {
         fprintf(stderr, "SQL Error: %s\n", sqlite3_errmsg(db));
         return;
     }
 
+    // クエリが「読み込み専用」であるかチェック（INSERTやCREATEなら 0 が返る）
+    is_readonly = sqlite3_stmt_readonly(pStmt);
+
+    if (!is_readonly) {
+        // 書き込み命令（INSERT等）の場合は、この1回限りの実行で即座に完了させる
+        int rc = sqlite3_step(pStmt);
+        if (rc != SQLITE_DONE && rc != SQLITE_ROW) {
+            fprintf(stderr, "SQL Execution Error: %s\n", sqlite3_errmsg(db));
+        }
+        sqlite3_finalize(pStmt);
+        return; // これ以上の2パス処理は絶対にさせずに安全終了
+    }
+
+    // 以下、SELECT文（読み込み専用クエリ）時のみ安全に実行される2パス等幅整列処理
     nCol = sqlite3_column_count(pStmt);
     if (nCol > MAX_COLS) nCol = MAX_COLS;
 
@@ -195,7 +210,7 @@ int main(int argc, char **argv) {
     }
 
     printf("SQLite version 3.53.3  ");
-    printf("(X680x0 version 0.26.7.1.02 by Kenoh)\n");
+    printf("(X680x0 version 0.26.7.2.01 by Kenoh)\n");
     printf("Opened database: %s\n", db_name);
     printf("Type '.help' for usage hints.\n");
     printf("Type '.quit' to quit.\n\n");

@@ -2,7 +2,7 @@
 // sqlite3_test    : SQLite3 Library Test for X680x0
 //--------------------------------------------------------------------
 // 処理内容        : スタティックライブラリのリンクテスト
-// ﾌｧｲﾙ名          : main.c
+// ﾌｧｲﾙ名          : test.c
 // 開発環境        : GNU Compiler Collection (GCC) + Newlib
 //                   クロス開発環境 (elf2x68k)
 // 動作環境        : X680x0, Human68k

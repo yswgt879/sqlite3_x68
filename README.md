@@ -1,8 +1,7 @@
 # SQLite3 for X68000
 
 ## はじめに
-
-SQLite3 を軽量化し、X68000向けに移植しました。
+[SQLite3](https://sqlite.org) を軽量化し、X68000向けに移植しました。
 
 ローカルドライブ（FD・HD）の他、エミュレータのホスト共有やネットワークドライブ上でも動作します。
 
@@ -78,7 +77,7 @@ sqlite> .quit
 
 プログラム言語から利用できるライブラリが格納されています。
 
-現在、MicroPython用が用意されております。<br>
+現在、[MicroPython for X680x0](https://github.com/yunkya2/micropython-x68k)用が用意されております。<br>
 
 ### サンプルプログラム・データベースディレクトリ
 

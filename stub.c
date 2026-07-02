@@ -8,9 +8,9 @@
 // 動作環境        : X680x0, Human68k
 // 作成者          : Kenoh
 // 作成日          : 2026/06/26
-// 更新日          : 2026/07/01
+// 更新日          : 2026/07/02
 // SQLite3 Version : 3.53.3
-// X680x0 Version  : 0.26.7.1.02
+// X680x0 Version  : 0.26.7.2.03
 //====================================================================
 #include <stdio.h>
 #include <string.h>
@@ -430,44 +430,213 @@ static sqlite3_vfs stdioVfs = {
   stdioRandomness, stdioSleep, stdioCurrentTime, 0
 };
 
+// (前略：VFSの各I/O関数や、static sqlite3_vfs stdioVfs の定義まではそのまま維持してください)
+
+#define MAX_COLS 32
+
+/******************************************************************************
+ * @fn      xsql_utf8_to_sjis
+ * @brief   外部データファイルからShift-JISコードを引っこ抜くライブラリ内蔵関数
+ * @param   pUtf8       : 変換元のUTF-8文字列へのポインタ
+ * @param   pSjis       : 変換結果を格納するバッファへのポインタ
+ * @param   maxLen      : 格納先バッファの最大サイズ
+ * @return  なし
+ * ******************************************************************************/
+static void xsql_utf8_to_sjis(const char *pUtf8, char *pSjis, int maxLen) {
+    int i = 0, j = 0;
+    FILE *fp = fopen("utf8sjis.dat", "rb");
+    if (fp == NULL) {
+        strncpy(pSjis, pUtf8, maxLen);
+        pSjis[maxLen - 1] = '\0';
+        return;
+    }
+    while (pUtf8[i] && j < maxLen - 2) {
+        unsigned char c1 = pUtf8[i];
+        if (c1 < 0x80) {
+            pSjis[j++] = pUtf8[i++];
+        } else if ((c1 & 0xE0) == 0xE0) {
+            unsigned char c2 = pUtf8[i+1];
+            unsigned char c3 = pUtf8[i+2];
+            if (c2 && c3) {
+                unsigned int uni = ((c1 & 0x0F) << 12) | ((c2 & 0x3F) << 6) | (c3 & 0x3F);
+                unsigned short sjis_code = 0x81A0;
+                fseek(fp, uni * 2, SEEK_SET);
+                fread(&sjis_code, 2, 1, fp);
+                unsigned char s1 = (sjis_code >> 8) & 0xFF;
+                unsigned char s2 = sjis_code & 0xFF;
+                if (s1 == 0) {
+                    pSjis[j++] = s2;
+                } else {
+                    pSjis[j++] = s1;
+                    pSjis[j++] = s2;
+                }
+                i += 3;
+            } else {
+                pSjis[j++] = pUtf8[i++];
+            }
+        } else {
+            pSjis[j++] = pUtf8[i++];
+        }
+    }
+    pSjis[j] = '\0';
+    fclose(fp);
+}
+
+/******************************************************************************
+ * @fn      xsql_sjis_to_utf8
+ * @brief   Shift-JIS文字列をUTF-8へリアルタイム変換するライブラリ内蔵関数
+ * @param   pSjis       : 変換元のShift-JIS文字列へのポインタ
+ * @param   pUtf8       : 変換結果を格納するバッファへのポインタ
+ * @param   maxLen      : 格納先バッファの最大サイズ
+ * @return  なし
+ * ******************************************************************************/
+static void xsql_sjis_to_utf8(const char *pSjis, char *pUtf8, int maxLen) {
+    int i = 0, j = 0;
+    while (pSjis[i] && j < maxLen - 3) {
+        unsigned char c1 = pSjis[i];
+        if (c1 < 0x80) {
+            pUtf8[j++] = pSjis[i++];
+        } else if ((c1 >= 0x81 && c1 <= 0x9F) || (c1 >= 0xE0 && c1 <= 0xFC)) {
+            unsigned char c2 = pSjis[i+1];
+            if (c2) {
+                unsigned int uni = 0x3000;
+                if (c1 == 0x82 && c2 >= 0x9F) {
+                    uni = 0x3041 + (c2 - 0x9F);
+                } else if (c1 == 0x83 && c2 >= 0x40) {
+                    uni = 0x30A1 + (c2 - 0x40);
+                } else {
+                    unsigned char j1 = (c1 <= 0x9F) ? (c1 - 0x71) * 2 + 1 : (c1 - 0x70) * 2;
+                    unsigned char j2 = (c2 >= 0x80) ? c2 - 1 : c2;
+                    j2 = (c1 <= 0x9F) ? j2 - 0x1F : j2 - 0x7D;
+                    uni = ((j1 - 0x21) * 94 + (j2 - 0x21)) + 0x4E00;
+                }
+                pUtf8[j++] = 0xE0 | ((uni >> 12) & 0x0F);
+                pUtf8[j++] = 0x80 | ((uni >> 6) & 0x3F);
+                pUtf8[j++] = 0x80 | (uni & 0x3F);
+                i += 2;
+            } else {
+                pUtf8[j++] = pSjis[i++];
+            }
+        } else {
+            pUtf8[j++] = pSjis[i++];
+        }
+    }
+    pUtf8[j] = '\0';
+}
+
+/******************************************************************************
+ * @fn      x68k_sqlite3_exec
+ * @brief   C言語アプリから一発呼び出しできる、型判別Shift-JIS等幅出力関数
+ * @param   db          : オープン済みのsqlite3オブジェクト
+ * @param   zSqlSjis    : 実行を要求するShift-JISのSQLクエリ文字列
+ * @return  int         : ステータスコード
+ * ******************************************************************************/
+int x68k_sqlite3_exec(sqlite3 *db, const char *zSqlSjis) {
+    sqlite3_stmt *pStmt;
+    int col_widths[MAX_COLS];
+    int col_types[MAX_COLS];
+    int nCol = 0;
+    char sjis_buf[512];
+    char query_utf8[1024];
+
+    xsql_sjis_to_utf8(zSqlSjis, query_utf8, sizeof(query_utf8));
+
+    if (sqlite3_prepare_v2(db, query_utf8, -1, &pStmt, NULL) != SQLITE_OK) {
+        fprintf(stderr, "SQL Error: %s\n", sqlite3_errmsg(db));
+        return sqlite3_errcode(db);
+    }
+
+    nCol = sqlite3_column_count(pStmt);
+    if (nCol > MAX_COLS) nCol = MAX_COLS;
+
+    for (int i = 0; i < nCol; i++) {
+        const char *name = sqlite3_column_name(pStmt, i);
+        if (name) {
+            xsql_utf8_to_sjis(name, sjis_buf, sizeof(sjis_buf));
+            col_widths[i] = strlen(sjis_buf);
+        } else {
+            col_widths[i] = 0;
+        }
+        col_types[i] = SQLITE_TEXT; 
+    }
+
+    while (sqlite3_step(pStmt) == SQLITE_ROW) {
+        for (int i = 0; i < nCol; i++) {
+            const char *val = (const char*)sqlite3_column_text(pStmt, i);
+            if (val) {
+                xsql_utf8_to_sjis(val, sjis_buf, sizeof(sjis_buf));
+                int len = strlen(sjis_buf);
+                if (len > col_widths[i]) {
+                    col_widths[i] = len;
+                }
+                int type = sqlite3_column_type(pStmt, i);
+                if (type == SQLITE_INTEGER || type == SQLITE_FLOAT) {
+                    col_types[i] = type;
+                }
+            }
+        }
+    }
+    sqlite3_finalize(pStmt);
+
+    if (sqlite3_prepare_v2(db, query_utf8, -1, &pStmt, NULL) != SQLITE_OK) {
+        return sqlite3_errcode(db);
+    }
+
+    if (sqlite3_step(pStmt) == SQLITE_ROW) {
+        for (int i = 0; i < nCol; i++) {
+            const char *name = sqlite3_column_name(pStmt, i);
+            if (name) xsql_utf8_to_sjis(name, sjis_buf, sizeof(sjis_buf));
+            else sjis_buf[0] = '\0';
+            
+            if (col_types[i] == SQLITE_INTEGER || col_types[i] == SQLITE_FLOAT) {
+                printf("%*s%s", col_widths[i], sjis_buf, (i == nCol - 1) ? "" : "|");
+            } else {
+                printf("%-*s%s", col_widths[i], sjis_buf, (i == nCol - 1) ? "" : "|");
+            }
+        }
+        printf("\n");
+
+        for (int i = 0; i < nCol; i++) {
+            for (int j = 0; j < col_widths[i]; j++) printf("-");
+            printf("%s", (i == nCol - 1) ? "" : "+");
+        }
+        printf("\n");
+
+        do {
+            for (int i = 0; i < nCol; i++) {
+                const char *val = (const char*)sqlite3_column_text(pStmt, i);
+                if (val) xsql_utf8_to_sjis(val, sjis_buf, sizeof(sjis_buf));
+                else sjis_buf[0] = '\0';
+
+                if (col_types[i] == SQLITE_INTEGER || col_types[i] == SQLITE_FLOAT) {
+                    printf("%*s%s", col_widths[i], sjis_buf, (i == nCol - 1) ? "" : "|");
+                } else {
+                    printf("%-*s%s", col_widths[i], sjis_buf, (i == nCol - 1) ? "" : "|");
+                }
+            }
+            printf("\n");
+        } while (sqlite3_step(pStmt) == SQLITE_ROW);
+    }
+    sqlite3_finalize(pStmt);
+    return SQLITE_OK;
+}
+
 /******************************************************************************
  * @fn      sqlite3_os_init
- * @brief   SQLiteエンジン起動時の「仮想ファイルシステム登録」の最優先処理
- * @param   なし
- * @return  int         : VFS登録の成否を表すステータスコード
- * @sa
- * @detail  
- *          -DSQLITE_OS_OTHER=1が指定された時、エンジンの立ち上げ時に最優先で実行されます。
- *          自作した標準Cライブラリ（stdio）版のVFSをシステムへデフォルトとして登録します。
- ******************************************************************************/
-int sqlite3_os_init(void) {
-  return sqlite3_vfs_register(&stdioVfs, 1); 
+ * @brief   SQLite VFSの登録（重複のない決定版）
+ * ******************************************************************************/
+int sqlite3_os_init(void) { 
+    return sqlite3_vfs_register(&stdioVfs, 1); 
 }
 
 /******************************************************************************
  * @fn      sqlite3_os_end
- * @brief   SQLiteエンジン終了時のシャットダウン処理
- * @param   なし
- * @return  int         : SQLITE_OK
- * @sa
- * @detail  
- *          データベースエンジンのクローズ要求。
- *          メモリ上のバッファや永続ファイルの破棄処理を安全に終了させるためのスタブです。
- ******************************************************************************/
-int sqlite3_os_end(void) {
-  return SQLITE_OK;
+ * ******************************************************************************/
+int sqlite3_os_end(void) { 
+    return SQLITE_OK; 
 }
 
 /******************************************************************************
  * @fn      sqlite3Analyze
- * @brief   OMIT_ANALYZEを貫通してリンクされるパーサー用関数（空処理スタブ）
- * @param   Parse*      : 構文解析オブジェクト（内部定義依存）
- * @param   Token*      : トークン情報1
- * @param   Token*      : トークン情報2
- * @return  void
- * @sa
- * @detail  
- *          SQLiteコアの軽量化（OMITフラグ）時、構文解析器内部に一部残存してしまう
- *          依存関係の参照を、リンクエラーにさせないために配置した空の関数です。
- ******************************************************************************/
+ * ******************************************************************************/
 void sqlite3Analyze(void){}

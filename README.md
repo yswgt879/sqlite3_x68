@@ -14,36 +14,68 @@
 ## バージョン情報
 
 * SQLite3 Version : 3.53.3
-* X68000 Version  : 0.26.7.2.02
+* X68000 Version  : 0.26.7.2.03
 
 ## リポジトリの構成
 
-| ファイル       | 内容                                                             |
-|----------------|------------------------------------------------------------------|
-| `Makefile`     | メイクファイル                                                   |
-| `minshell.c`   | コマンドラインシェルソース（軽量版・メタコマンド追加）           |
-| `stub.c`       | 標準C言語版VFSおよびNewlibの型衝突を回避したブリッジコードソース |
-| `sqlite3.h`    | SQLite3公式のAmalgamationヘッダ（そのまま配置してOK）            |
-| `sqlite3.c`    | SQLite3公式のAmalgamationソース（そのまま配置してOK）            |
-| `utf8sjis.dat` | UTF-8・SJIS文字コード自動変換用データ                            |
-| `./lib`        | ライブラリディレクトリ                                           |
-| `./sample`     | サンプルプログラム・データベースディレクトリ                     |
+| ファイル          | 内容                                                             |
+|-------------------|------------------------------------------------------------------|
+| `Makefile`        | コマンドラインシェル（sqlite3.x）ビルド用Makefile                |
+| `minshell.c`      | コマンドラインシェルソース（軽量版・メタコマンド追加）           |
+| `stub.c`          | 標準C言語版VFSおよびNewlibの型衝突を回避したブリッジコードソース |
+| `sqlite3.h`       | SQLite3公式のAmalgamationヘッダ（そのまま配置してOK）            |
+| `sqlite3.c`       | SQLite3公式のAmalgamationソース（そのまま配置してOK）            |
+| `utf8sjis.dat`    | UTF-8・SJIS文字コード自動変換用データ                            |
+| `Makefile.lib`    | スタティックライブラリ（libsqlite3.a）作成用Makefile             |
+| `./lib`           |                                                                  |
+| `liblibsqlite3.a` | C言語アプリケーション用スタティックライブラリ                    |
+| `sqlite3_x68k.py` | MicroPython用SQLite3軽量ラッパーライブラリ                       |
+| `./sample`        |                                                                  |
+| `test.c`          | C言語用サンプルアプリケーションソースコード                      |
+| `Makefile.app`    | C言語用サンプルアプリケーション（test.x）リンク用Makefile        |
+| `test.py`         | MicroPython用サンプルアプリケーションスクリプト                  |
+| `test.db`         | 動作検証用サンプルデータベースファイル                           |
 
 ## コンパイル方法 (Mac クロス環境のみ)
+
+全て、[クロス開発環境 elf2x68k](https://github.com/yunkya2/elf2x68k)用に作成されております。
+
+環境に合わせて `Makefile`・`Makefile.lib`・`Makefile.app` 内のコンパイラパスを変更してください。
+
+### コマンドラインシェル(`sqlite3.x`)のビルド
 
 ターミナルで以下のコマンドを実行します。
 
 ```bash
+make clean
 make
 ```
 
-[クロス開発環境 elf2x68k](https://github.com/yunkya2/elf2x68k)用に作成されております。
+### C言語ライブラリ(`libsqlite3.a`)のビルド
 
-環境に合わせて `Makefile` 内のコンパイラパスを変更してください。
+ターミナルで以下のコマンドを実行します。
+
+```bash
+make -f Makefile.lib clean
+make -f Makefile.lib
+```
+
+### C言語サンプルプログラム(`test.x`)のビルド
+
+ターミナルで以下のコマンドを実行します。<br>
+ビルドは、`./sample`内で行います。
+
+```bash
+cd ./sample
+make -f Makefile.app clean
+make -f Makefile.app
+```
+
+ビルドされた`test.x`は、通常の階層へコピーします。
 
 ## X68000での使い方
 
-### 起動方法
+### コマンドラインシェル（`sqlite3.x`）の起動方法
 引数に、 **保存したいデータベースのファイル名** （`拡張子は.db`）を指定して起動してください。
 
 （ファイルが存在しない場合、自動でメモリに作成されますが、ファイルに保存されません）
@@ -77,17 +109,18 @@ sqlite> .quit
 
 プログラム言語から利用できるライブラリが格納されています。
 
-現在、[MicroPython for X680x0](https://github.com/yunkya2/micropython-x68k)用が用意されております。<br>
+[MicroPython for X680x0](https://github.com/yunkya2/micropython-x68k)用と
+C言語（[クロス開発環境 elf2x68k](https://github.com/yunkya2/elf2x68k)）用が用意されております。<br>
 
 ### サンプルプログラム・データベースディレクトリ
 
 各種サンプルプログラム・データベースファイルが格納されています。
 
-test.pyは、MicroPythonからtest.dbのテーブル内容を表示するテストプログラムです。
+`test.py`は、MicroPythonから`test.db`のテーブル内容を表示するテストプログラムです。
 
-（micropython.x、データベースファイル（test.db）、UTF-8・SJIS文字コード自動変換用データ（utf8sjis.dat）、MicroPythonスクリプト(sqlite3_x68k.py・test.py)は、同一のディレクトリに置いて実行してください）<br>
+（`micropython.x`、データベースファイル（`test.db`）、UTF-8・SJIS文字コード自動変換用データ（`utf8sjis.dat`）、MicroPythonスクリプト(`sqlite3_x68k.py`・`test.py`)は、同一のディレクトリに置いて実行してください）<br>
 
-```lib
+```test1
 micropython test.py
 Executing LEFT JOIN query...
 
@@ -113,6 +146,26 @@ Executing LEFT JOIN query...
 氏名     : 永井 結衣
 所属部署 : 営業部
 -----------------------------------
+```
+
+`test.x`（C言語でビルドした実行ファイル）は、`test.db`のテーブル内容を表示するテストプログラムです。
+
+（データベースファイル（`test.db`）、UTF-8・SJIS文字コード自動変換用データ（`utf8sjis.dat`）は、同一のディレクトリに置いて実行してください）<br>
+
+```test2
+test
+Connecting to test.db (C Native Library)...
+Executing LEFT JOIN query with Auto-Width & Shift-JIS Convert...
+
+--- C Native SQLite3 Results (Static Link) ---
+emp_id|emp_name |dept_name
+------+---------+---------
+    11|坂本 剛  |総務部
+    12|平田 恭平|人事部
+    13|二階堂 誠|開発部
+    14|霧島 咲良|開発部
+    15|永井 結衣|営業部
+----------------------------------------------
 ```
 
 ---

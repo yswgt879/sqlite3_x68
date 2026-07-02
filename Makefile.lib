@@ -1,0 +1,59 @@
+# =====================================================================
+#  Makefile.lib : SQLite3 Static Library for X680x0 (Mac Cross)
+# =====================================================================
+
+# クロスコンパイラおよびアーカイバの設定
+CC      := m68k-xelf-gcc
+AR      := m68k-xelf-ar
+RANLIB  := m68k-xelf-ranlib
+
+# スタティックライブラリの出力先パスを指定
+LIB_DIR    = ./lib
+TARGET_LIB = $(LIB_DIR)/libsqlite3.a
+
+# ライブラリに組み込むオブジェクトファイル
+OBJS = sqlite3.o stub.o
+
+# コンパイルオプション（2MB環境最適化フラグ群）
+CFLAGS = -O2 \
+         -DSQLITE_OS_OTHER=1 \
+         -DSQLITE_THREADSAFE=0 \
+         -DSQLITE_OMIT_LOAD_EXTENSION=1 \
+         -DSQLITE_OMIT_WAL=1 \
+         -DSQLITE_OMIT_DEPRECATED=1 \
+         -DSQLITE_DEFAULT_PAGE_SIZE=512 \
+         -DSQLITE_DEFAULT_CACHE_SIZE=10 \
+         -DSQLITE_DEFAULT_LOOKASIDE=0,0 \
+         -DSQLITE_DEFAULT_MEMSTATUS=0 \
+         -DSQLITE_MAX_MEMORY=262144 \
+         -DSQLITE_OMIT_ANALYZE=1 \
+         -DSQLITE_OMIT_PROGRESS_CALLBACK=1 \
+         -DSQLITE_OMIT_VIRTUALtable=1 \
+         -DHAVE_SYS_IOCTL_H=0 \
+         -DIsatty= \
+         -Dlstat=stat
+
+# デフォルトターゲット
+all: $(TARGET_LIB)
+
+# オブジェクトファイルからスタティックライブラリを生成
+$(TARGET_LIB): $(OBJS)
+	@# 【★安全ガード】lib フォルダが存在しない場合は、自動で mkdir して生成します
+	@mkdir -p $(LIB_DIR)
+	@echo "-> スタティックライブラリをパック中... ($(TARGET_LIB))"
+	$(AR) rcs $(TARGET_LIB) $(OBJS)
+	$(RANLIB) $(TARGET_LIB)
+	@echo "======================================================"
+	@echo " 成功: $(TARGET_LIB) が正常に作成されました！"
+	@echo "======================================================"
+
+# 各Cソースのコンパイルルール
+%.o: %.c
+	@echo "-> コンパイル中: $<"
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# クリーンアップ（生成された lib フォルダ内のライブラリも綺麗にお掃除します）
+clean:
+	rm -f $(OBJS) $(TARGET_LIB)
+
+.PHONY: all clean
